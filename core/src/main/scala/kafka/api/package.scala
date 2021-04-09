@@ -19,8 +19,7 @@ package kafka
 import org.apache.kafka.common.ElectionType
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.requests.ElectLeadersRequest
-import scala.collection.JavaConverters._
-import scala.collection.breakOut
+import scala.jdk.CollectionConverters._
 
 package object api {
   implicit final class ElectLeadersRequestOps(val self: ElectLeadersRequest) extends AnyVal {
@@ -28,11 +27,11 @@ package object api {
       if (self.data.topicPartitions == null) {
         Set.empty
       } else {
-        self.data.topicPartitions.asScala.flatMap { topicPartition =>
-          topicPartition.partitionId.asScala.map { partitionId =>
+        self.data.topicPartitions.asScala.iterator.flatMap { topicPartition =>
+          topicPartition.partitions.asScala.map { partitionId =>
             new TopicPartition(topicPartition.topic, partitionId)
           }
-        }(breakOut)
+        }.toSet
       }
     }
 

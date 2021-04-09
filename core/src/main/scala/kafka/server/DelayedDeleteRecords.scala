@@ -20,21 +20,22 @@ package kafka.server
 
 import java.util.concurrent.TimeUnit
 
-import kafka.cluster.Partition
 import kafka.metrics.KafkaMetricsGroup
-import org.apache.kafka.common.protocol.Errors
+import kafka.utils.Implicits._
 import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.message.DeleteRecordsResponseData
+import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.common.requests.DeleteRecordsResponse
 
 import scala.collection._
 
 
 case class DeleteRecordsPartitionStatus(requiredOffset: Long,
-                                        responseStatus: DeleteRecordsResponse.PartitionResponse) {
+                                        responseStatus: DeleteRecordsResponseData.DeleteRecordsPartitionResult) {
   @volatile var acksPending = false
 
   override def toString = "[acksPending: %b, error: %s, lowWatermark: %d, requiredOffset: %d]"
-    .format(acksPending, responseStatus.error.toString, responseStatus.lowWatermark, requiredOffset)
+    .format(acksPending, Errors.forCode(responseStatus.errorCode).toString, responseStatus.lowWatermark, requiredOffset)
 }
 
 /**
@@ -44,15 +45,15 @@ case class DeleteRecordsPartitionStatus(requiredOffset: Long,
 class DelayedDeleteRecords(delayMs: Long,
                            deleteRecordsStatus:  Map[TopicPartition, DeleteRecordsPartitionStatus],
                            replicaManager: ReplicaManager,
-                           responseCallback: Map[TopicPartition, DeleteRecordsResponse.PartitionResponse] => Unit)
+                           responseCallback: Map[TopicPartition, DeleteRecordsResponseData.DeleteRecordsPartitionResult] => Unit)
   extends DelayedOperation(delayMs) {
 
   // first update the acks pending variable according to the error code
-  deleteRecordsStatus.foreach { case (topicPartition, status) =>
-    if (status.responseStatus.error == Errors.NONE) {
+  deleteRecordsStatus.forKeyValue { (topicPartition, status) =>
+    if (status.responseStatus.errorCode == Errors.NONE.code) {
       // Timeout error state will be cleared when required acks are received
       status.acksPending = true
-      status.responseStatus.error = Errors.REQUEST_TIMED_OUT
+      status.responseStatus.setErrorCode(Errors.REQUEST_TIMED_OUT.code)
     } else {
       status.acksPending = false
     }
@@ -69,19 +70,22 @@ class DelayedDeleteRecords(delayMs: Long,
    */
   override def tryComplete(): Boolean = {
     // check for each partition if it still has pending acks
-    deleteRecordsStatus.foreach { case (topicPartition, status) =>
+    deleteRecordsStatus.forKeyValue { (topicPartition, status) =>
       trace(s"Checking delete records satisfaction for $topicPartition, current status $status")
       // skip those partitions that have already been satisfied
       if (status.acksPending) {
         val (lowWatermarkReached, error, lw) = replicaManager.getPartition(topicPartition) match {
-          case partition: Partition =>
-            partition.leaderReplicaIfLocal match {
+          case HostedPartition.Online(partition) =>
+            partition.leaderLogIfLocal match {
               case Some(_) =>
                 val leaderLW = partition.lowWatermarkIfLeader
                 (leaderLW >= status.requiredOffset, Errors.NONE, leaderLW)
               case None =>
-                (false, Errors.NOT_LEADER_FOR_PARTITION, DeleteRecordsResponse.INVALID_LOW_WATERMARK)
+                (false, Errors.NOT_LEADER_OR_FOLLOWER, DeleteRecordsResponse.INVALID_LOW_WATERMARK)
             }
+
+          case _: HostedPartition.Deferred =>
+            (false, Errors.UNKNOWN_TOPIC_OR_PARTITION, DeleteRecordsResponse.INVALID_LOW_WATERMARK)
 
           case HostedPartition.Offline =>
             (false, Errors.KAFKA_STORAGE_ERROR, DeleteRecordsResponse.INVALID_LOW_WATERMARK)
@@ -91,8 +95,8 @@ class DelayedDeleteRecords(delayMs: Long,
         }
         if (error != Errors.NONE || lowWatermarkReached) {
           status.acksPending = false
-          status.responseStatus.error = error
-          status.responseStatus.lowWatermark = lw
+          status.responseStatus.setErrorCode(error.code)
+          status.responseStatus.setLowWatermark(lw)
         }
       }
     }
@@ -104,8 +108,8 @@ class DelayedDeleteRecords(delayMs: Long,
       false
   }
 
-  override def onExpiration() {
-    deleteRecordsStatus.foreach { case (topicPartition, status) =>
+  override def onExpiration(): Unit = {
+    deleteRecordsStatus.forKeyValue { (topicPartition, status) =>
       if (status.acksPending) {
         DelayedDeleteRecordsMetrics.recordExpiration(topicPartition)
       }
@@ -115,8 +119,8 @@ class DelayedDeleteRecords(delayMs: Long,
   /**
    * Upon completion, return the current response status along with the error code per partition
    */
-  override def onComplete() {
-    val responseStatus = deleteRecordsStatus.mapValues(status => status.responseStatus)
+  override def onComplete(): Unit = {
+    val responseStatus = deleteRecordsStatus.map { case (k, status) => k -> status.responseStatus }
     responseCallback(responseStatus)
   }
 }
@@ -125,7 +129,7 @@ object DelayedDeleteRecordsMetrics extends KafkaMetricsGroup {
 
   private val aggregateExpirationMeter = newMeter("ExpiresPerSec", "requests", TimeUnit.SECONDS)
 
-  def recordExpiration(partition: TopicPartition) {
+  def recordExpiration(partition: TopicPartition): Unit = {
     aggregateExpirationMeter.mark()
   }
 }

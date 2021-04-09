@@ -22,13 +22,11 @@ import kafka.admin.DelegationTokenCommand.DelegationTokenCommandOptions
 import kafka.api.{KafkaSasl, SaslSetup}
 import kafka.server.{BaseRequestTest, KafkaConfig}
 import kafka.utils.{JaasTestUtils, TestUtils}
-import org.apache.kafka.clients.admin.AdminClientConfig
+import org.apache.kafka.clients.admin.{Admin, AdminClientConfig}
 import org.apache.kafka.common.security.auth.SecurityProtocol
-import org.junit.Assert._
-import org.junit.{After, Before, Test}
-import org.scalatest.Assertions.intercept
+import org.junit.jupiter.api.Assertions._
+import org.junit.jupiter.api.{AfterEach, BeforeEach, Test}
 
-import scala.collection.JavaConverters._
 import scala.collection.mutable.ListBuffer
 import scala.concurrent.ExecutionException
 
@@ -38,11 +36,11 @@ class DelegationTokenCommandTest extends BaseRequestTest with SaslSetup {
   private val kafkaServerSaslMechanisms = List("PLAIN")
   protected override val serverSaslProperties = Some(kafkaServerSaslProperties(kafkaServerSaslMechanisms, kafkaClientSaslMechanism))
   protected override val clientSaslProperties = Some(kafkaClientSaslProperties(kafkaClientSaslMechanism))
-  var adminClient: org.apache.kafka.clients.admin.AdminClient = null
+  var adminClient: Admin = null
 
   override def brokerCount = 1
 
-  @Before
+  @BeforeEach
   override def setUp(): Unit = {
     startSasl(jaasSections(kafkaServerSaslMechanisms, Some(kafkaClientSaslMechanism), KafkaSasl, JaasTestUtils.KafkaServerContextName))
     super.setUp()
@@ -57,18 +55,18 @@ class DelegationTokenCommandTest extends BaseRequestTest with SaslSetup {
     props.map(KafkaConfig.fromProps)
   }
 
-  private def createAdminConfig():util.Map[String, Object] = {
+  private def createAdminConfig: util.Map[String, Object] = {
     val config = new util.HashMap[String, Object]
     config.put(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, brokerList)
     val securityProps: util.Map[Object, Object] =
       TestUtils.adminClientSecurityConfigs(securityProtocol, trustStoreFile, clientSaslProperties)
-    securityProps.asScala.foreach { case (key, value) => config.put(key.asInstanceOf[String], value) }
+    securityProps.forEach { (key, value) => config.put(key.asInstanceOf[String], value) }
     config
   }
 
   @Test
   def testDelegationTokenRequests(): Unit = {
-    adminClient = org.apache.kafka.clients.admin.AdminClient.create(createAdminConfig)
+    adminClient = Admin.create(createAdminConfig)
     val renewer1 = "User:renewer1"
     val renewer2 = "User:renewer2"
 
@@ -105,7 +103,7 @@ class DelegationTokenCommandTest extends BaseRequestTest with SaslSetup {
     assertTrue(tokens.size == 0)
 
     //create token with invalid renewer principal type
-    intercept[ExecutionException](DelegationTokenCommand.createToken(adminClient, getCreateOpts(List("Group:Renewer3"))))
+    assertThrows(classOf[ExecutionException], () => DelegationTokenCommand.createToken(adminClient, getCreateOpts(List("Group:Renewer3"))))
 
     // try describing tokens for unknown owner
     assertTrue(DelegationTokenCommand.describeToken(adminClient, getDescribeOpts(List("User:Unknown"))).isEmpty)
@@ -138,7 +136,7 @@ class DelegationTokenCommandTest extends BaseRequestTest with SaslSetup {
     new DelegationTokenCommandOptions(opts)
   }
 
-  @After
+  @AfterEach
   override def tearDown(): Unit = {
     if (adminClient != null)
       adminClient.close()

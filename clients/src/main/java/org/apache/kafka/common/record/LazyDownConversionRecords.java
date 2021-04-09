@@ -77,8 +77,8 @@ public class LazyDownConversionRecords implements BaseRecords {
     }
 
     @Override
-    public LazyDownConversionRecordsSend toSend(String destination) {
-        return new LazyDownConversionRecordsSend(destination, this);
+    public LazyDownConversionRecordsSend toSend() {
+        return new LazyDownConversionRecordsSend(this);
     }
 
     public TopicPartition topicPartition() {
@@ -104,6 +104,15 @@ public class LazyDownConversionRecords implements BaseRecords {
         result = 31 * result + topicPartition.hashCode();
         result = 31 * result + records.hashCode();
         return result;
+    }
+
+    @Override
+    public String toString() {
+        return "LazyDownConversionRecords(size=" + sizeInBytes +
+                ", underlying=" + records +
+                ", toMagic=" + toMagic +
+                ", firstOffset=" + firstOffset +
+                ")";
     }
 
     public java.util.Iterator<ConvertedRecords<?>> iterator(long maximumReadSize) {

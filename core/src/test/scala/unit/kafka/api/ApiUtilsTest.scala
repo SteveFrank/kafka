@@ -17,8 +17,8 @@
 
 package kafka.api
 
-import org.junit._
-import org.junit.Assert._
+import org.junit.jupiter.api._
+import org.junit.jupiter.api.Assertions._
 
 import scala.util.Random
 import java.nio.ByteBuffer
@@ -33,7 +33,7 @@ object ApiUtilsTest {
 class ApiUtilsTest {
 
   @Test
-  def testShortStringNonASCII() {
+  def testShortStringNonASCII(): Unit = {
     // Random-length strings
     for(_ <- 0 to 100) {
       // Since we're using UTF-8 encoding, each encoded byte will be one to four bytes long 
@@ -46,7 +46,7 @@ class ApiUtilsTest {
   }
 
   @Test
-  def testShortStringASCII() {
+  def testShortStringASCII(): Unit = {
     // Random-length strings
     for(_ <- 0 to 100) {
       val s: String = TestUtils.randomString(math.abs(ApiUtilsTest.rnd.nextInt()) % Short.MaxValue)  
@@ -64,18 +64,8 @@ class ApiUtilsTest {
     assertEquals(s1, ApiUtils.readShortString(bb))
 
     // One byte too big
-    val s2: String = TestUtils.randomString(Short.MaxValue + 1) 
-    try {
-      ApiUtils.shortStringLength(s2)
-      fail
-    } catch {
-      case _: KafkaException => // ok
-    }
-    try {
-      ApiUtils.writeShortString(bb, s2)
-      fail
-    } catch {
-      case _: KafkaException => // ok
-    }
+    val s2: String = TestUtils.randomString(Short.MaxValue + 1)
+    assertThrows(classOf[KafkaException], () => ApiUtils.shortStringLength(s2))
+    assertThrows(classOf[KafkaException], () => ApiUtils.writeShortString(bb, s2))
   }
 }

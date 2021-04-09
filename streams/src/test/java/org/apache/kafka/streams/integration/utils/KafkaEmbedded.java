@@ -22,7 +22,7 @@ import kafka.server.KafkaServer;
 import kafka.utils.MockTime;
 import kafka.utils.TestUtils;
 import org.apache.kafka.clients.CommonClientConfigs;
-import org.apache.kafka.clients.admin.AdminClient;
+import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.common.config.SslConfigs;
@@ -30,7 +30,6 @@ import org.apache.kafka.common.config.types.Password;
 import org.apache.kafka.common.errors.UnknownTopicOrPartitionException;
 import org.apache.kafka.common.network.ListenerName;
 import org.apache.kafka.common.utils.Utils;
-import org.junit.rules.TemporaryFolder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -55,7 +54,7 @@ public class KafkaEmbedded {
 
     private final Properties effectiveConfig;
     private final File logDir;
-    private final TemporaryFolder tmpFolder;
+    private final File tmpFolder;
     private final KafkaServer kafka;
 
     /**
@@ -67,9 +66,8 @@ public class KafkaEmbedded {
      */
     @SuppressWarnings("WeakerAccess")
     public KafkaEmbedded(final Properties config, final MockTime time) throws IOException {
-        tmpFolder = new TemporaryFolder();
-        tmpFolder.create();
-        logDir = tmpFolder.newFolder();
+        tmpFolder = org.apache.kafka.test.TestUtils.tempDirectory();
+        logDir = org.apache.kafka.test.TestUtils.tempDirectory(tmpFolder.toPath(), "log");
         effectiveConfig = effectiveConfigFrom(config);
         final boolean loggingEnabled = true;
         final KafkaConfig kafkaConfig = new KafkaConfig(effectiveConfig, loggingEnabled);
@@ -123,22 +121,22 @@ public class KafkaEmbedded {
         return effectiveConfig.getProperty("zookeeper.connect", DEFAULT_ZK_CONNECT);
     }
 
-    /**
-     * Stop the broker.
-     */
     @SuppressWarnings("WeakerAccess")
-    public void stop() {
+    public void stopAsync() {
         log.debug("Shutting down embedded Kafka broker at {} (with ZK ensemble at {}) ...",
-            brokerList(), zookeeperConnect());
+                  brokerList(), zookeeperConnect());
         kafka.shutdown();
+    }
+
+    @SuppressWarnings("WeakerAccess")
+    public void awaitStoppedAndPurge() {
         kafka.awaitShutdown();
         log.debug("Removing log dir at {} ...", logDir);
         try {
-            Utils.delete(logDir);
+            Utils.delete(tmpFolder);
         } catch (final IOException e) {
             throw new RuntimeException(e);
         }
-        tmpFolder.delete();
         log.debug("Shutdown of embedded Kafka broker at {} completed (with ZK ensemble at {}) ...",
             brokerList(), zookeeperConnect());
     }
@@ -180,7 +178,7 @@ public class KafkaEmbedded {
         final NewTopic newTopic = new NewTopic(topic, partitions, (short) replication);
         newTopic.configs(topicConfig);
 
-        try (final AdminClient adminClient = createAdminClient()) {
+        try (final Admin adminClient = createAdminClient()) {
             adminClient.createTopics(Collections.singletonList(newTopic)).all().get();
         } catch (final InterruptedException | ExecutionException e) {
             throw new RuntimeException(e);
@@ -188,7 +186,7 @@ public class KafkaEmbedded {
     }
 
     @SuppressWarnings("WeakerAccess")
-    public AdminClient createAdminClient() {
+    public Admin createAdminClient() {
         final Properties adminClientConfig = new Properties();
         adminClientConfig.put(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, brokerList());
         final Object listeners = effectiveConfig.get(KafkaConfig$.MODULE$.ListenersProp());
@@ -197,13 +195,13 @@ public class KafkaEmbedded {
             adminClientConfig.put(SslConfigs.SSL_TRUSTSTORE_PASSWORD_CONFIG, ((Password) effectiveConfig.get(SslConfigs.SSL_TRUSTSTORE_PASSWORD_CONFIG)).value());
             adminClientConfig.put(CommonClientConfigs.SECURITY_PROTOCOL_CONFIG, "SSL");
         }
-        return AdminClient.create(adminClientConfig);
+        return Admin.create(adminClientConfig);
     }
 
     @SuppressWarnings("WeakerAccess")
     public void deleteTopic(final String topic) {
         log.debug("Deleting topic { name: {} }", topic);
-        try (final AdminClient adminClient = createAdminClient()) {
+        try (final Admin adminClient = createAdminClient()) {
             adminClient.deleteTopics(Collections.singletonList(topic)).all().get();
         } catch (final InterruptedException | ExecutionException e) {
             if (!(e.getCause() instanceof UnknownTopicOrPartitionException)) {

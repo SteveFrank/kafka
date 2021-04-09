@@ -16,6 +16,7 @@
  */
 package org.apache.kafka.streams.kstream.internals;
 
+import org.apache.kafka.common.metrics.Sensor;
 import org.apache.kafka.streams.processor.AbstractProcessor;
 import org.apache.kafka.streams.processor.Processor;
 import org.apache.kafka.streams.processor.ProcessorContext;
@@ -27,6 +28,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Objects;
+
+import static org.apache.kafka.streams.processor.internals.metrics.TaskMetrics.droppedRecordsSensorOrSkippedRecordsSensor;
 
 public class KTableSource<K, V> implements ProcessorSupplier<K, V> {
     private static final Logger LOG = LoggerFactory.getLogger(KTableSource.class);
@@ -65,17 +68,23 @@ public class KTableSource<K, V> implements ProcessorSupplier<K, V> {
         this.queryableName = storeName;
     }
 
+    public boolean materialized() {
+        return queryableName != null;
+    }
+
     private class KTableSourceProcessor extends AbstractProcessor<K, V> {
 
         private TimestampedKeyValueStore<K, V> store;
         private TimestampedTupleForwarder<K, V> tupleForwarder;
         private StreamsMetricsImpl metrics;
+        private Sensor droppedRecordsSensor;
 
         @SuppressWarnings("unchecked")
         @Override
         public void init(final ProcessorContext context) {
             super.init(context);
             metrics = (StreamsMetricsImpl) context.metrics();
+            droppedRecordsSensor = droppedRecordsSensorOrSkippedRecordsSensor(Thread.currentThread().getName(), context.taskId().toString(), metrics);
             if (queryableName != null) {
                 store = (TimestampedKeyValueStore<K, V>) context.getStateStore(queryableName);
                 tupleForwarder = new TimestampedTupleForwarder<>(
@@ -94,7 +103,7 @@ public class KTableSource<K, V> implements ProcessorSupplier<K, V> {
                     "Skipping record due to null key. topic=[{}] partition=[{}] offset=[{}]",
                     context().topic(), context().partition(), context().offset()
                 );
-                metrics.skippedRecordsSensor().record();
+                droppedRecordsSensor.record();
                 return;
             }
 

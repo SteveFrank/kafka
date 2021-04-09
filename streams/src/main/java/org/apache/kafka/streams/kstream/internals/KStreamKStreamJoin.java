@@ -16,8 +16,9 @@
  */
 package org.apache.kafka.streams.kstream.internals;
 
+import org.apache.kafka.common.metrics.Sensor;
 import org.apache.kafka.streams.KeyValue;
-import org.apache.kafka.streams.kstream.ValueJoiner;
+import org.apache.kafka.streams.kstream.ValueJoinerWithKey;
 import org.apache.kafka.streams.processor.AbstractProcessor;
 import org.apache.kafka.streams.processor.Processor;
 import org.apache.kafka.streams.processor.ProcessorContext;
@@ -29,6 +30,7 @@ import org.apache.kafka.streams.state.WindowStoreIterator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import static org.apache.kafka.streams.processor.internals.metrics.TaskMetrics.droppedRecordsSensorOrSkippedRecordsSensor;
 
 class KStreamKStreamJoin<K, R, V1, V2> implements ProcessorSupplier<K, V1> {
     private static final Logger LOG = LoggerFactory.getLogger(KStreamKStreamJoin.class);
@@ -37,10 +39,14 @@ class KStreamKStreamJoin<K, R, V1, V2> implements ProcessorSupplier<K, V1> {
     private final long joinBeforeMs;
     private final long joinAfterMs;
 
-    private final ValueJoiner<? super V1, ? super V2, ? extends R> joiner;
+    private final ValueJoinerWithKey<? super K, ? super V1, ? super V2, ? extends R> joiner;
     private final boolean outer;
 
-    KStreamKStreamJoin(final String otherWindowName, final long joinBeforeMs, final long joinAfterMs, final ValueJoiner<? super V1, ? super V2, ? extends R> joiner, final boolean outer) {
+    KStreamKStreamJoin(final String otherWindowName,
+                       final long joinBeforeMs,
+                       final long joinAfterMs,
+                       final ValueJoinerWithKey<? super K, ? super V1, ? super V2, ? extends R> joiner,
+                       final boolean outer) {
         this.otherWindowName = otherWindowName;
         this.joinBeforeMs = joinBeforeMs;
         this.joinAfterMs = joinAfterMs;
@@ -57,13 +63,14 @@ class KStreamKStreamJoin<K, R, V1, V2> implements ProcessorSupplier<K, V1> {
 
         private WindowStore<K, V2> otherWindow;
         private StreamsMetricsImpl metrics;
+        private Sensor droppedRecordsSensor;
 
         @SuppressWarnings("unchecked")
         @Override
         public void init(final ProcessorContext context) {
             super.init(context);
             metrics = (StreamsMetricsImpl) context.metrics();
-
+            droppedRecordsSensor = droppedRecordsSensorOrSkippedRecordsSensor(Thread.currentThread().getName(), context.taskId().toString(), metrics);
             otherWindow = (WindowStore<K, V2>) context.getStateStore(otherWindowName);
         }
 
@@ -81,7 +88,7 @@ class KStreamKStreamJoin<K, R, V1, V2> implements ProcessorSupplier<K, V1> {
                     "Skipping record due to null key or value. key=[{}] value=[{}] topic=[{}] partition=[{}] offset=[{}]",
                     key, value, context().topic(), context().partition(), context().offset()
                 );
-                metrics.skippedRecordsSensor().record();
+                droppedRecordsSensor.record();
                 return;
             }
 
@@ -97,12 +104,12 @@ class KStreamKStreamJoin<K, R, V1, V2> implements ProcessorSupplier<K, V1> {
                     final KeyValue<Long, V2> otherRecord = iter.next();
                     context().forward(
                         key,
-                        joiner.apply(value, otherRecord.value),
+                        joiner.apply(key, value, otherRecord.value),
                         To.all().withTimestamp(Math.max(inputRecordTimestamp, otherRecord.key)));
                 }
 
                 if (needOuterJoin) {
-                    context().forward(key, joiner.apply(value, null));
+                    context().forward(key, joiner.apply(key, value, null));
                 }
             }
         }

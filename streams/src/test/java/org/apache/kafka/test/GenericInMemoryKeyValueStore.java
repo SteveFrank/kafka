@@ -58,6 +58,7 @@ public class GenericInMemoryKeyValueStore<K extends Comparable, V>
         return this.name;
     }
 
+    @Deprecated
     @Override
     @SuppressWarnings("unchecked")
     /* This is a "dummy" store used for testing;
@@ -169,11 +170,6 @@ public class GenericInMemoryKeyValueStore<K extends Comparable, V>
         public KeyValue<K, V> next() {
             final Map.Entry<K, V> entry = iter.next();
             return new KeyValue<>(entry.getKey(), entry.getValue());
-        }
-
-        @Override
-        public void remove() {
-            iter.remove();
         }
 
         @Override

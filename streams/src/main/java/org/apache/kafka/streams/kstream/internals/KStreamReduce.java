@@ -16,6 +16,7 @@
  */
 package org.apache.kafka.streams.kstream.internals;
 
+import org.apache.kafka.common.metrics.Sensor;
 import org.apache.kafka.streams.kstream.Reducer;
 import org.apache.kafka.streams.processor.AbstractProcessor;
 import org.apache.kafka.streams.processor.Processor;
@@ -26,6 +27,7 @@ import org.apache.kafka.streams.state.ValueAndTimestamp;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import static org.apache.kafka.streams.processor.internals.metrics.TaskMetrics.droppedRecordsSensorOrSkippedRecordsSensor;
 import static org.apache.kafka.streams.state.ValueAndTimestamp.getValueOrNull;
 
 public class KStreamReduce<K, V> implements KStreamAggProcessorSupplier<K, K, V, V> {
@@ -56,12 +58,14 @@ public class KStreamReduce<K, V> implements KStreamAggProcessorSupplier<K, K, V,
         private TimestampedKeyValueStore<K, V> store;
         private TimestampedTupleForwarder<K, V> tupleForwarder;
         private StreamsMetricsImpl metrics;
+        private Sensor droppedRecordsSensor;
 
         @SuppressWarnings("unchecked")
         @Override
         public void init(final ProcessorContext context) {
             super.init(context);
             metrics = (StreamsMetricsImpl) context.metrics();
+            droppedRecordsSensor = droppedRecordsSensorOrSkippedRecordsSensor(Thread.currentThread().getName(), context.taskId().toString(), metrics);
             store = (TimestampedKeyValueStore<K, V>) context.getStateStore(storeName);
             tupleForwarder = new TimestampedTupleForwarder<>(
                 store,
@@ -78,7 +82,7 @@ public class KStreamReduce<K, V> implements KStreamAggProcessorSupplier<K, K, V,
                     "Skipping record due to null key or value. key=[{}] value=[{}] topic=[{}] partition=[{}] offset=[{}]",
                     key, value, context().topic(), context().partition(), context().offset()
                 );
-                metrics.skippedRecordsSensor().record();
+                droppedRecordsSensor.record();
                 return;
             }
 
@@ -130,9 +134,6 @@ public class KStreamReduce<K, V> implements KStreamAggProcessorSupplier<K, K, V,
         public ValueAndTimestamp<V> get(final K key) {
             return store.get(key);
         }
-
-        @Override
-        public void close() {}
     }
 }
 

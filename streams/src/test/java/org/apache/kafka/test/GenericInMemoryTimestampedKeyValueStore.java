@@ -59,6 +59,7 @@ public class GenericInMemoryTimestampedKeyValueStore<K extends Comparable, V>
         return this.name;
     }
 
+    @Deprecated
     @Override
     @SuppressWarnings("unchecked")
     /* This is a "dummy" store used for testing;
@@ -170,11 +171,6 @@ public class GenericInMemoryTimestampedKeyValueStore<K extends Comparable, V>
         public KeyValue<K, ValueAndTimestamp<V>> next() {
             final Map.Entry<K, ValueAndTimestamp<V>> entry = iter.next();
             return new KeyValue<>(entry.getKey(), entry.getValue());
-        }
-
-        @Override
-        public void remove() {
-            iter.remove();
         }
 
         @Override

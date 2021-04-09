@@ -23,6 +23,7 @@ import org.apache.kafka.common.Node;
 import org.apache.kafka.common.utils.LogContext;
 import org.apache.kafka.common.utils.Time;
 
+import java.time.Duration;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -34,7 +35,7 @@ import java.util.Map;
  * easily create a simple cluster.
  * <p>
  * To use in a test, create an instance and prepare its {@link #kafkaClient() MockClient} with the expected responses
- * for the {@link AdminClient}. Then, use the {@link #adminClient() AdminClient} in the test, which will then use the MockClient
+ * for the {@link Admin}. Then, use the {@link #adminClient() AdminClient} in the test, which will then use the MockClient
  * and receive the responses you provided.
  *
  * Since {@link #kafkaClient() MockClient} is not thread-safe,
@@ -103,7 +104,7 @@ public class AdminClientUnitTestEnv implements AutoCloseable {
         return cluster;
     }
 
-    public AdminClient adminClient() {
+    public Admin adminClient() {
         return adminClient;
     }
 
@@ -113,7 +114,10 @@ public class AdminClientUnitTestEnv implements AutoCloseable {
 
     @Override
     public void close() {
-        this.adminClient.close();
+        // tell the admin client to close now
+        this.adminClient.close(Duration.ZERO);
+        // block for up to a minute until the internal threads shut down.
+        this.adminClient.close(Duration.ofMinutes(1));
     }
 
     static Map<String, Object> clientConfigs(String... overrides) {

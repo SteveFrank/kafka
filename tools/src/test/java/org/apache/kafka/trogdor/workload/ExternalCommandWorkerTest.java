@@ -17,7 +17,6 @@
 
 package org.apache.kafka.trogdor.workload;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.IntNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -27,9 +26,6 @@ import org.apache.kafka.common.utils.OperatingSystem;
 import org.apache.kafka.test.TestUtils;
 import org.apache.kafka.trogdor.task.AgentWorkerStatusTracker;
 import org.apache.kafka.trogdor.task.WorkerStatusTracker;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.Timeout;
 
 import java.io.File;
 import java.io.OutputStream;
@@ -38,13 +34,15 @@ import java.nio.file.Files;
 import java.util.Arrays;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
+@Timeout(value = 120000, unit = MILLISECONDS)
 public class ExternalCommandWorkerTest {
-    @Rule
-    final public Timeout globalTimeout = Timeout.millis(120000);
 
     static class ExternalCommandWorkerBuilder {
         private final String id;
@@ -109,7 +107,7 @@ public class ExternalCommandWorkerTest {
     }
 
     /**
-     * Test attempting to run an exeutable which doesn't exist.
+     * Test attempting to run an executable which doesn't exist.
      * We use a path which starts with /dev/null, since that should never be a
      * directory in UNIX.
      */
@@ -172,12 +170,7 @@ public class ExternalCommandWorkerTest {
                 }
             }
             CompletableFuture<String> statusFuture = new CompletableFuture<>();
-            final WorkerStatusTracker statusTracker = new WorkerStatusTracker() {
-                @Override
-                public void update(JsonNode status) {
-                    statusFuture .complete(status.textValue().toString());
-                }
-            };
+            final WorkerStatusTracker statusTracker = status -> statusFuture .complete(status.textValue());
             ExternalCommandWorker worker = new ExternalCommandWorkerBuilder("testForceKillTask").
                 shutdownGracePeriodMs(1).
                 command("bash", tempFile.getAbsolutePath()).

@@ -17,7 +17,7 @@
 
 package org.apache.kafka.trogdor.common;
 
-import org.apache.kafka.clients.admin.AdminClient;
+import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.admin.DescribeTopicsOptions;
 import org.apache.kafka.clients.admin.DescribeTopicsResult;
@@ -34,6 +34,7 @@ import org.apache.kafka.common.errors.TimeoutException;
 import org.apache.kafka.common.errors.TopicExistsException;
 import org.apache.kafka.common.errors.UnknownTopicOrPartitionException;
 import org.apache.kafka.common.internals.KafkaFutureImpl;
+import org.apache.kafka.common.requests.CreateTopicsRequest;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.common.utils.Utils;
 import org.slf4j.Logger;
@@ -131,7 +132,7 @@ public final class WorkerUtils {
         // this method wraps the call to createTopics() that takes admin client, so that we can
         // unit test the functionality with MockAdminClient. The exception is caught and
         // re-thrown so that admin client is closed when the method returns.
-        try (AdminClient adminClient
+        try (Admin adminClient
                  = createAdminClient(bootstrapServers, commonClientConf, adminClientConf)) {
             createTopics(log, adminClient, topics, failOnExisting);
         } catch (Exception e) {
@@ -148,7 +149,7 @@ public final class WorkerUtils {
      * @throws Throwable if creation of one or more topics fails (except for the cases above).
      */
     static void createTopics(
-        Logger log, AdminClient adminClient,
+        Logger log, Admin adminClient,
         Map<String, NewTopic> topics, boolean failOnExisting) throws Throwable {
         if (topics.isEmpty()) {
             log.warn("Request to create topics has an empty topic list.");
@@ -174,7 +175,7 @@ public final class WorkerUtils {
      * @return                Collection of topics names that already exist.
      * @throws Throwable if creation of one or more topics fails (except for topic exists case).
      */
-    private static Collection<String> createTopics(Logger log, AdminClient adminClient,
+    private static Collection<String> createTopics(Logger log, Admin adminClient,
                                                    Collection<NewTopic> topics) throws Throwable {
         long startMs = Time.SYSTEM.milliseconds();
         int tries = 0;
@@ -248,8 +249,8 @@ public final class WorkerUtils {
      * @throws RuntimeException  If one or more topics have different number of partitions than
      * described in 'topicsInfo'
      */
-    private static void verifyTopics(
-        Logger log, AdminClient adminClient,
+    static void verifyTopics(
+        Logger log, Admin adminClient,
         Collection<String> topicsToVerify, Map<String, NewTopic> topicsInfo, int retryCount, long retryBackoffMs) throws Throwable {
 
         Map<String, TopicDescription> topicDescriptionMap = topicDescriptions(topicsToVerify, adminClient,
@@ -259,7 +260,7 @@ public final class WorkerUtils {
             // map will always contain the topic since all topics in 'topicsExists' are in given
             // 'topics' map
             int partitions = topicsInfo.get(desc.name()).numPartitions();
-            if (desc.partitions().size() != partitions) {
+            if (partitions != CreateTopicsRequest.NO_NUM_PARTITIONS && desc.partitions().size() != partitions) {
                 String str = "Topic '" + desc.name() + "' exists, but has "
                              + desc.partitions().size() + " partitions, while requested "
                              + " number of partitions is " + partitions;
@@ -270,7 +271,7 @@ public final class WorkerUtils {
     }
 
     private static Map<String, TopicDescription> topicDescriptions(Collection<String> topicsToVerify,
-                                                                   AdminClient adminClient,
+                                                                   Admin adminClient,
                                                                    int retryCount, long retryBackoffMs)
             throws ExecutionException, InterruptedException {
         UnknownTopicOrPartitionException lastException = null;
@@ -279,9 +280,13 @@ public final class WorkerUtils {
                 DescribeTopicsResult topicsResult = adminClient.describeTopics(
                         topicsToVerify, new DescribeTopicsOptions().timeoutMs(ADMIN_REQUEST_TIMEOUT));
                 return topicsResult.all().get();
-            } catch (UnknownTopicOrPartitionException exception) {
-                lastException = exception;
-                Thread.sleep(retryBackoffMs);
+            } catch (ExecutionException exception) {
+                if (exception.getCause() instanceof UnknownTopicOrPartitionException) {
+                    lastException = (UnknownTopicOrPartitionException) exception.getCause();
+                    Thread.sleep(retryBackoffMs);
+                } else {
+                    throw exception;
+                }
             }
         }
         throw lastException;
@@ -296,7 +301,7 @@ public final class WorkerUtils {
      * @throws Throwable      If failed to get list of existing topics
      */
     static Collection<TopicPartition> getMatchingTopicPartitions(
-        AdminClient adminClient, String topicRegex, int startPartition, int endPartition)
+        Admin adminClient, String topicRegex, int startPartition, int endPartition)
         throws Throwable {
         final Pattern topicNamePattern = Pattern.compile(topicRegex);
 
@@ -328,7 +333,7 @@ public final class WorkerUtils {
         return out;
     }
 
-    private static AdminClient createAdminClient(
+    private static Admin createAdminClient(
         String bootstrapServers,
         Map<String, String> commonClientConf, Map<String, String> adminClientConf) {
         Properties props = new Properties();
@@ -337,6 +342,6 @@ public final class WorkerUtils {
         // first add common client config, and then admin client config to properties, possibly
         // over-writing default or common properties.
         addConfigsToProperties(props, commonClientConf, adminClientConf);
-        return AdminClient.create(props);
+        return Admin.create(props);
     }
 }

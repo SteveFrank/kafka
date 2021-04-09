@@ -20,9 +20,9 @@ import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.common.serialization.IntegerSerializer;
 import org.apache.kafka.common.serialization.Serdes;
 import org.apache.kafka.streams.KafkaStreams;
-import org.apache.kafka.streams.KeyValue;
 import org.apache.kafka.streams.StreamsBuilder;
 import org.apache.kafka.streams.StreamsConfig;
+import org.apache.kafka.streams.KeyValue;
 import org.apache.kafka.streams.integration.utils.EmbeddedKafkaCluster;
 import org.apache.kafka.streams.integration.utils.IntegrationTestUtils;
 import org.apache.kafka.streams.kstream.Windowed;
@@ -42,11 +42,15 @@ import org.apache.kafka.streams.state.WindowStore;
 import org.apache.kafka.test.IntegrationTest;
 import org.apache.kafka.test.TestUtils;
 import org.junit.After;
+import org.junit.AfterClass;
 import org.junit.Before;
-import org.junit.ClassRule;
+import org.junit.BeforeClass;
+import org.junit.Rule;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
+import org.junit.rules.TestName;
 
+import java.io.IOException;
 import java.time.Duration;
 import java.util.LinkedList;
 import java.util.List;
@@ -54,27 +58,40 @@ import java.util.Properties;
 
 import static java.util.Arrays.asList;
 import static java.util.Collections.singletonList;
+import static org.apache.kafka.streams.integration.utils.IntegrationTestUtils.safeUniqueTestName;
 
 @Category({IntegrationTest.class})
 public class StoreUpgradeIntegrationTest {
-    private static String inputStream;
     private static final String STORE_NAME = "store";
+    private String inputStream;
 
     private KafkaStreams kafkaStreams;
-    private static int testCounter = 0;
 
-    @ClassRule
     public static final EmbeddedKafkaCluster CLUSTER = new EmbeddedKafkaCluster(1);
+
+    @BeforeClass
+    public static void startCluster() throws IOException {
+        CLUSTER.start();
+    }
+
+    @AfterClass
+    public static void closeCluster() {
+        CLUSTER.stop();
+    }
+
+    @Rule
+    public TestName testName = new TestName();
 
     @Before
     public void createTopics() throws Exception {
-        inputStream = "input-stream-" + testCounter;
+        inputStream = "input-stream-" + safeUniqueTestName(getClass(), testName);
         CLUSTER.createTopic(inputStream);
     }
 
     private Properties props() {
         final Properties streamsConfiguration = new Properties();
-        streamsConfiguration.put(StreamsConfig.APPLICATION_ID_CONFIG, "addId-" + testCounter++);
+        final String safeTestName = safeUniqueTestName(getClass(), testName);
+        streamsConfiguration.put(StreamsConfig.APPLICATION_ID_CONFIG, "app-" + safeTestName);
         streamsConfiguration.put(StreamsConfig.BOOTSTRAP_SERVERS_CONFIG, CLUSTER.bootstrapServers());
         streamsConfiguration.put(StreamsConfig.CACHE_MAX_BYTES_BUFFERING_CONFIG, 0);
         streamsConfiguration.put(StreamsConfig.STATE_DIR_CONFIG, TestUtils.tempDirectory().getPath());
@@ -329,56 +346,77 @@ public class StoreUpgradeIntegrationTest {
                 IntegerSerializer.class),
             CLUSTER.time);
 
-        TestUtils.waitForCondition(() -> {
-            try {
-                final ReadOnlyKeyValueStore<K, V> store =
-                    kafkaStreams.store(STORE_NAME, QueryableStoreTypes.keyValueStore());
-                try (final KeyValueIterator<K, V> all = store.all()) {
-                    final List<KeyValue<K, V>> storeContent = new LinkedList<>();
-                    while (all.hasNext()) {
-                        storeContent.add(all.next());
+        TestUtils.waitForCondition(
+            () -> {
+                try {
+                    final ReadOnlyKeyValueStore<K, V> store = IntegrationTestUtils.getStore(STORE_NAME, kafkaStreams, QueryableStoreTypes.keyValueStore());
+
+                    if (store == null) {
+                        return false;
                     }
-                    return storeContent.equals(expectedStoreContent);
+
+                    try (final KeyValueIterator<K, V> all = store.all()) {
+                        final List<KeyValue<K, V>> storeContent = new LinkedList<>();
+                        while (all.hasNext()) {
+                            storeContent.add(all.next());
+                        }
+                        return storeContent.equals(expectedStoreContent);
+                    }
+                } catch (final Exception swallow) {
+                    swallow.printStackTrace();
+                    System.err.println(swallow.getMessage());
+                    return false;
                 }
-            } catch (final Exception swallow) {
-                swallow.printStackTrace();
-                System.err.println(swallow.getMessage());
-                return false;
-            }
-        }, "Could not get expected result in time.");
+            },
+            60_000L,
+            "Could not get expected result in time.");
     }
 
     private <K> void verifyCountWithTimestamp(final K key,
                                               final long value,
                                               final long timestamp) throws Exception {
-        TestUtils.waitForCondition(() -> {
-            try {
-                final ReadOnlyKeyValueStore<K, ValueAndTimestamp<Long>> store =
-                    kafkaStreams.store(STORE_NAME, QueryableStoreTypes.timestampedKeyValueStore());
-                final ValueAndTimestamp<Long> count = store.get(key);
-                return count.value() == value && count.timestamp() == timestamp;
-            } catch (final Exception swallow) {
-                swallow.printStackTrace();
-                System.err.println(swallow.getMessage());
-                return false;
-            }
-        }, "Could not get expected result in time.");
+        TestUtils.waitForCondition(
+            () -> {
+                try {
+                    final ReadOnlyKeyValueStore<K, ValueAndTimestamp<Long>> store = IntegrationTestUtils
+                        .getStore(STORE_NAME, kafkaStreams, QueryableStoreTypes.timestampedKeyValueStore());
+
+                    if (store == null)
+                        return false;
+
+                    final ValueAndTimestamp<Long> count = store.get(key);
+                    return count.value() == value && count.timestamp() == timestamp;
+                } catch (final Exception swallow) {
+                    swallow.printStackTrace();
+                    System.err.println(swallow.getMessage());
+                    return false;
+                }
+            },
+            60_000L,
+            "Could not get expected result in time.");
     }
 
     private <K> void verifyCountWithSurrogateTimestamp(final K key,
                                                        final long value) throws Exception {
-        TestUtils.waitForCondition(() -> {
-            try {
-                final ReadOnlyKeyValueStore<K, ValueAndTimestamp<Long>> store =
-                    kafkaStreams.store(STORE_NAME, QueryableStoreTypes.timestampedKeyValueStore());
-                final ValueAndTimestamp<Long> count = store.get(key);
-                return count.value() == value && count.timestamp() == -1L;
-            } catch (final Exception swallow) {
-                swallow.printStackTrace();
-                System.err.println(swallow.getMessage());
-                return false;
-            }
-        }, "Could not get expected result in time.");
+        TestUtils.waitForCondition(
+            () -> {
+                try {
+                    final ReadOnlyKeyValueStore<K, ValueAndTimestamp<Long>> store = IntegrationTestUtils
+                        .getStore(STORE_NAME, kafkaStreams, QueryableStoreTypes.timestampedKeyValueStore());
+
+                    if (store == null)
+                        return false;
+
+                    final ValueAndTimestamp<Long> count = store.get(key);
+                    return count.value() == value && count.timestamp() == -1L;
+                } catch (final Exception swallow) {
+                    swallow.printStackTrace();
+                    System.err.println(swallow.getMessage());
+                    return false;
+                }
+            },
+            60_000L,
+            "Could not get expected result in time.");
     }
 
     private <K, V> void processKeyValueAndVerifyCount(final K key,
@@ -394,23 +432,30 @@ public class StoreUpgradeIntegrationTest {
                 IntegerSerializer.class),
             timestamp);
 
-        TestUtils.waitForCondition(() -> {
-            try {
-                final ReadOnlyKeyValueStore<K, ValueAndTimestamp<V>> store =
-                    kafkaStreams.store(STORE_NAME, QueryableStoreTypes.timestampedKeyValueStore());
-                try (final KeyValueIterator<K, ValueAndTimestamp<V>> all = store.all()) {
-                    final List<KeyValue<K, ValueAndTimestamp<V>>> storeContent = new LinkedList<>();
-                    while (all.hasNext()) {
-                        storeContent.add(all.next());
+        TestUtils.waitForCondition(
+            () -> {
+                try {
+                    final ReadOnlyKeyValueStore<K, ValueAndTimestamp<V>> store = IntegrationTestUtils
+                        .getStore(STORE_NAME, kafkaStreams, QueryableStoreTypes.timestampedKeyValueStore());
+
+                    if (store == null)
+                        return false;
+
+                    try (final KeyValueIterator<K, ValueAndTimestamp<V>> all = store.all()) {
+                        final List<KeyValue<K, ValueAndTimestamp<V>>> storeContent = new LinkedList<>();
+                        while (all.hasNext()) {
+                            storeContent.add(all.next());
+                        }
+                        return storeContent.equals(expectedStoreContent);
                     }
-                    return storeContent.equals(expectedStoreContent);
+                } catch (final Exception swallow) {
+                    swallow.printStackTrace();
+                    System.err.println(swallow.getMessage());
+                    return false;
                 }
-            } catch (final Exception swallow) {
-                swallow.printStackTrace();
-                System.err.println(swallow.getMessage());
-                return false;
-            }
-        }, "Could not get expected result in time.");
+            },
+            60_000L,
+            "Could not get expected result in time.");
     }
 
     private <K, V> void processKeyValueAndVerifyCountWithTimestamp(final K key,
@@ -426,23 +471,30 @@ public class StoreUpgradeIntegrationTest {
                 IntegerSerializer.class),
             timestamp);
 
-        TestUtils.waitForCondition(() -> {
-            try {
-                final ReadOnlyKeyValueStore<K, ValueAndTimestamp<V>> store =
-                    kafkaStreams.store(STORE_NAME, QueryableStoreTypes.timestampedKeyValueStore());
-                try (final KeyValueIterator<K, ValueAndTimestamp<V>> all = store.all()) {
-                    final List<KeyValue<K, ValueAndTimestamp<V>>> storeContent = new LinkedList<>();
-                    while (all.hasNext()) {
-                        storeContent.add(all.next());
+        TestUtils.waitForCondition(
+            () -> {
+                try {
+                    final ReadOnlyKeyValueStore<K, ValueAndTimestamp<V>> store = IntegrationTestUtils
+                        .getStore(STORE_NAME, kafkaStreams, QueryableStoreTypes.timestampedKeyValueStore());
+
+                    if (store == null)
+                        return false;
+
+                    try (final KeyValueIterator<K, ValueAndTimestamp<V>> all = store.all()) {
+                        final List<KeyValue<K, ValueAndTimestamp<V>>> storeContent = new LinkedList<>();
+                        while (all.hasNext()) {
+                            storeContent.add(all.next());
+                        }
+                        return storeContent.equals(expectedStoreContent);
                     }
-                    return storeContent.equals(expectedStoreContent);
+                } catch (final Exception swallow) {
+                    swallow.printStackTrace();
+                    System.err.println(swallow.getMessage());
+                    return false;
                 }
-            } catch (final Exception swallow) {
-                swallow.printStackTrace();
-                System.err.println(swallow.getMessage());
-                return false;
-            }
-        }, "Could not get expected result in time.");
+            },
+            60_000L,
+            "Could not get expected result in time.");
     }
 
     @Test
@@ -477,8 +529,8 @@ public class StoreUpgradeIntegrationTest {
 
 
         shouldMigrateWindowStoreToTimestampedWindowStoreUsingPapi(
-            new KafkaStreams(streamsBuilderForOldStore.build(), props()),
-            new KafkaStreams(streamsBuilderForNewStore.build(), props()),
+            streamsBuilderForOldStore,
+            streamsBuilderForNewStore,
             false);
     }
 
@@ -513,17 +565,17 @@ public class StoreUpgradeIntegrationTest {
             .<Integer, Integer>stream(inputStream)
             .process(TimestampedWindowedProcessor::new, STORE_NAME);
 
-        final Properties props = props();
         shouldMigrateWindowStoreToTimestampedWindowStoreUsingPapi(
-            new KafkaStreams(streamsBuilderForOldStore.build(), props),
-            new KafkaStreams(streamsBuilderForNewStore.build(), props),
+            streamsBuilderForOldStore,
+            streamsBuilderForNewStore,
             true);
     }
 
-    private void shouldMigrateWindowStoreToTimestampedWindowStoreUsingPapi(final KafkaStreams kafkaStreamsOld,
-                                                                           final KafkaStreams kafkaStreamsNew,
+    private void shouldMigrateWindowStoreToTimestampedWindowStoreUsingPapi(final StreamsBuilder streamsBuilderForOldStore,
+                                                                           final StreamsBuilder streamsBuilderForNewStore,
                                                                            final boolean persistentStore) throws Exception {
-        kafkaStreams = kafkaStreamsOld;
+        final Properties props = props();
+        kafkaStreams =  new KafkaStreams(streamsBuilderForOldStore.build(), props);
         kafkaStreams.start();
 
         processWindowedKeyValueAndVerifyPlainCount(1, singletonList(
@@ -567,7 +619,7 @@ public class StoreUpgradeIntegrationTest {
         kafkaStreams = null;
 
 
-        kafkaStreams = kafkaStreamsNew;
+        kafkaStreams = new KafkaStreams(streamsBuilderForNewStore.build(), props);
         kafkaStreams.start();
 
         verifyWindowedCountWithTimestamp(new Windowed<>(1, new TimeWindow(0L, 1000L)), 2L, lastUpdateKeyOne);
@@ -789,56 +841,77 @@ public class StoreUpgradeIntegrationTest {
                 IntegerSerializer.class),
             CLUSTER.time);
 
-        TestUtils.waitForCondition(() -> {
-            try {
-                final ReadOnlyWindowStore<K, V> store =
-                    kafkaStreams.store(STORE_NAME, QueryableStoreTypes.windowStore());
-                try (final KeyValueIterator<Windowed<K>, V> all = store.all()) {
-                    final List<KeyValue<Windowed<K>, V>> storeContent = new LinkedList<>();
-                    while (all.hasNext()) {
-                        storeContent.add(all.next());
+        TestUtils.waitForCondition(
+            () -> {
+                try {
+                    final ReadOnlyWindowStore<K, V> store = IntegrationTestUtils
+                        .getStore(STORE_NAME, kafkaStreams, QueryableStoreTypes.windowStore());
+
+                    if (store == null)
+                        return false;
+
+                    try (final KeyValueIterator<Windowed<K>, V> all = store.all()) {
+                        final List<KeyValue<Windowed<K>, V>> storeContent = new LinkedList<>();
+                        while (all.hasNext()) {
+                            storeContent.add(all.next());
+                        }
+                        return storeContent.equals(expectedStoreContent);
                     }
-                    return storeContent.equals(expectedStoreContent);
+                } catch (final Exception swallow) {
+                    swallow.printStackTrace();
+                    System.err.println(swallow.getMessage());
+                    return false;
                 }
-            } catch (final Exception swallow) {
-                swallow.printStackTrace();
-                System.err.println(swallow.getMessage());
-                return false;
-            }
-        }, "Could not get expected result in time.");
+            },
+            60_000L,
+            "Could not get expected result in time.");
     }
 
     private <K> void verifyWindowedCountWithSurrogateTimestamp(final Windowed<K> key,
                                                                final long value) throws Exception {
-        TestUtils.waitForCondition(() -> {
-            try {
-                final ReadOnlyWindowStore<K, ValueAndTimestamp<Long>> store =
-                    kafkaStreams.store(STORE_NAME, QueryableStoreTypes.timestampedWindowStore());
-                final ValueAndTimestamp<Long> count = store.fetch(key.key(), key.window().start());
-                return count.value() == value && count.timestamp() == -1L;
-            } catch (final Exception swallow) {
-                swallow.printStackTrace();
-                System.err.println(swallow.getMessage());
-                return false;
-            }
-        }, "Could not get expected result in time.");
+        TestUtils.waitForCondition(
+            () -> {
+                try {
+                    final ReadOnlyWindowStore<K, ValueAndTimestamp<Long>> store = IntegrationTestUtils
+                        .getStore(STORE_NAME, kafkaStreams, QueryableStoreTypes.timestampedWindowStore());
+
+                    if (store == null)
+                        return false;
+
+                    final ValueAndTimestamp<Long> count = store.fetch(key.key(), key.window().start());
+                    return count.value() == value && count.timestamp() == -1L;
+                } catch (final Exception swallow) {
+                    swallow.printStackTrace();
+                    System.err.println(swallow.getMessage());
+                    return false;
+                }
+            },
+            60_000L,
+            "Could not get expected result in time.");
     }
 
     private <K> void verifyWindowedCountWithTimestamp(final Windowed<K> key,
                                                       final long value,
                                                       final long timestamp) throws Exception {
-        TestUtils.waitForCondition(() -> {
-            try {
-                final ReadOnlyWindowStore<K, ValueAndTimestamp<Long>> store =
-                    kafkaStreams.store(STORE_NAME, QueryableStoreTypes.timestampedWindowStore());
-                final ValueAndTimestamp<Long> count = store.fetch(key.key(), key.window().start());
-                return count.value() == value && count.timestamp() == timestamp;
-            } catch (final Exception swallow) {
-                swallow.printStackTrace();
-                System.err.println(swallow.getMessage());
-                return false;
-            }
-        }, "Could not get expected result in time.");
+        TestUtils.waitForCondition(
+            () -> {
+                try {
+                    final ReadOnlyWindowStore<K, ValueAndTimestamp<Long>> store = IntegrationTestUtils
+                        .getStore(STORE_NAME, kafkaStreams, QueryableStoreTypes.timestampedWindowStore());
+
+                    if (store == null)
+                        return false;
+
+                    final ValueAndTimestamp<Long> count = store.fetch(key.key(), key.window().start());
+                    return count.value() == value && count.timestamp() == timestamp;
+                } catch (final Exception swallow) {
+                    swallow.printStackTrace();
+                    System.err.println(swallow.getMessage());
+                    return false;
+                }
+            },
+            60_000L,
+            "Could not get expected result in time.");
     }
 
     private <K, V> void processKeyValueAndVerifyWindowedCountWithTimestamp(final K key,
@@ -854,23 +927,30 @@ public class StoreUpgradeIntegrationTest {
                 IntegerSerializer.class),
             timestamp);
 
-        TestUtils.waitForCondition(() -> {
-            try {
-                final ReadOnlyWindowStore<K, ValueAndTimestamp<V>> store =
-                    kafkaStreams.store(STORE_NAME, QueryableStoreTypes.timestampedWindowStore());
-                try (final KeyValueIterator<Windowed<K>, ValueAndTimestamp<V>> all = store.all()) {
-                    final List<KeyValue<Windowed<K>, ValueAndTimestamp<V>>> storeContent = new LinkedList<>();
-                    while (all.hasNext()) {
-                        storeContent.add(all.next());
+        TestUtils.waitForCondition(
+            () -> {
+                try {
+                    final ReadOnlyWindowStore<K, ValueAndTimestamp<V>> store = IntegrationTestUtils
+                        .getStore(STORE_NAME, kafkaStreams, QueryableStoreTypes.timestampedWindowStore());
+
+                    if (store == null)
+                        return false;
+
+                    try (final KeyValueIterator<Windowed<K>, ValueAndTimestamp<V>> all = store.all()) {
+                        final List<KeyValue<Windowed<K>, ValueAndTimestamp<V>>> storeContent = new LinkedList<>();
+                        while (all.hasNext()) {
+                            storeContent.add(all.next());
+                        }
+                        return storeContent.equals(expectedStoreContent);
                     }
-                    return storeContent.equals(expectedStoreContent);
+                } catch (final Exception swallow) {
+                    swallow.printStackTrace();
+                    System.err.println(swallow.getMessage());
+                    return false;
                 }
-            } catch (final Exception swallow) {
-                swallow.printStackTrace();
-                System.err.println(swallow.getMessage());
-                return false;
-            }
-        }, "Could not get expected result in time.");
+            },
+            60_000L,
+            "Could not get expected result in time.");
     }
 
     private static class KeyValueProcessor implements Processor<Integer, Integer> {
