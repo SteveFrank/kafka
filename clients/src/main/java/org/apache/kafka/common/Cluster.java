@@ -32,6 +32,10 @@ public final class Cluster {
     private final boolean isBootstrapConfigured;
     private final List<Node> nodes;
     private final Set<String> unauthorizedTopics;
+    /**
+     * TopicPartition 代表了一个分区，里面就是topic的名字，以及topic的分区号
+     * PartitionInfo 代表了分区的详细信息，属于哪个topic的分区，每个分区都有多个副本
+     */
     private final Map<TopicPartition, PartitionInfo> partitionsByTopicPartition;
     private final Map<String, List<PartitionInfo>> partitionsByTopic;
     private final Map<String, List<PartitionInfo>> availablePartitionsByTopic;

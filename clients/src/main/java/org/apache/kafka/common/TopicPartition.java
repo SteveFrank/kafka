@@ -24,7 +24,13 @@ import java.io.Serializable;
 public final class TopicPartition implements Serializable {
 
     private int hash = 0;
+    /**
+     * 一个类对应一个分区
+     */
     private final int partition;
+    /**
+     * topic对应的名字
+     */
     private final String topic;
 
     public TopicPartition(String topic, int partition) {

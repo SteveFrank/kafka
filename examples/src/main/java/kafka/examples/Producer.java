@@ -40,6 +40,7 @@ public class Producer extends Thread {
         this.isAsync = isAsync;
     }
 
+    @Override
     public void run() {
         int messageNo = 1;
         while (true) {

@@ -19,8 +19,17 @@ public class PartitionInfo {
 
     private final String topic;
     private final int partition;
+    /**
+     * leader在哪个broker上
+     */
     private final Node leader;
+    /**
+     * follower在哪个broker上
+     */
     private final Node[] replicas;
+    /**
+     * ISR 列表都在里面
+     */
     private final Node[] inSyncReplicas;
 
     public PartitionInfo(String topic, int partition, Node leader, Node[] replicas, Node[] inSyncReplicas) {

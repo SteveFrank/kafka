@@ -116,6 +116,7 @@ public final class Metadata {
     }
 
     /**
+     * 一旦更新了集群版本号会加1
      * Wait for metadata update until the current version is larger than the last version we know of
      */
     public synchronized void awaitUpdate(final int lastVersion, final long maxWaitMs) throws InterruptedException {
@@ -124,6 +125,7 @@ public final class Metadata {
         }
         long begin = System.currentTimeMillis();
         long remainingWaitMs = maxWaitMs;
+        // 只要当前版本号小于最近的版本号
         while (this.version <= lastVersion) {
             if (remainingWaitMs != 0)
                 wait(remainingWaitMs);
