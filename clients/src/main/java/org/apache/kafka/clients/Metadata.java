@@ -123,6 +123,7 @@ public final class Metadata {
         if (maxWaitMs < 0) {
             throw new IllegalArgumentException("Max time to wait for metadata updates should not be < 0 milli seconds");
         }
+        // 开始时间
         long begin = System.currentTimeMillis();
         long remainingWaitMs = maxWaitMs;
         // 只要当前版本号小于最近的版本号

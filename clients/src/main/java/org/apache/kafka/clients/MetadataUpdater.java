@@ -19,6 +19,9 @@ import org.apache.kafka.common.protocol.types.Struct;
 import java.util.List;
 
 /**
+ *
+ * 元数据更新update
+ *
  * The interface used by `NetworkClient` to request cluster metadata info to be updated and to retrieve the cluster nodes
  * from such metadata. This is an internal class.
  * <p>

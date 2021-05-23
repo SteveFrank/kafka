@@ -35,6 +35,10 @@ import org.apache.kafka.common.utils.Utils;
  */
 public class DefaultPartitioner implements Partitioner {
 
+    /**
+     * 默认做递增
+     * 初始为随机的integer的数字
+     */
     private final AtomicInteger counter = new AtomicInteger(new Random().nextInt());
 
     /**
@@ -69,12 +73,17 @@ public class DefaultPartitioner implements Partitioner {
         List<PartitionInfo> partitions = cluster.partitionsForTopic(topic);
         int numPartitions = partitions.size();
         if (keyBytes == null) {
+            // 一定保证是正整数
             int nextValue = counter.getAndIncrement();
             List<PartitionInfo> availablePartitions = cluster.availablePartitionsForTopic(topic);
             if (availablePartitions.size() > 0) {
+                // 保证为一个正整数
+                // 不断使用一个递增的数字来对于分区的数量进行取模
                 int part = DefaultPartitioner.toPositive(nextValue) % availablePartitions.size();
+                // 保证了最后的均匀分发
                 return availablePartitions.get(part).partition();
             } else {
+                // 没有有效的分区可以使用
                 // no partitions are available, give a non-available partition
                 return DefaultPartitioner.toPositive(nextValue) % numPartitions;
             }

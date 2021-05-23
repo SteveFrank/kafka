@@ -220,6 +220,7 @@ public class Sender implements Runnable {
             pollTimeout = 0;
         }
         for (ClientRequest request : requests)
+            // 发送代码到KafkaServer
             client.send(request, now);
 
         // if some partitions are already ready to be sent, the select time would be 0;

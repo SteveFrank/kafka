@@ -301,13 +301,21 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
                     config.getInt(ProducerConfig.RECEIVE_BUFFER_CONFIG),
                     this.requestTimeoutMs, time);
             // 负责从缓冲区中获取消息发送到Kafka上去
+            // 设计模式值得学习的点
+            // 在设计后台线程的时候，可以参照这种模式，把线程以及线程执行的逻辑切分开，
+            // Sender就是Runnable线程执行的逻辑
+            // KafkaThread其实是代表了线程本身，线程的名字，为捕获异常的处理，daemon线程设置
+
+            // 后台线程和网络通信的组件要切分开，线程负责业务逻辑，网络通信组件就专门进行网络请求和响应，封装NIO等
             this.sender = new Sender(client,
                     this.metadata,
+                    // 内存缓冲
                     this.accumulator,
                     config.getInt(ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION) == 1,
                     config.getInt(ProducerConfig.MAX_REQUEST_SIZE_CONFIG),
                     // 默认配置：leader写成功默认写成功（acks = 1）
                     (short) parseAcks(config.getString(ProducerConfig.ACKS_CONFIG)),
+                    // 重试几次
                     config.getInt(ProducerConfig.RETRIES_CONFIG),
                     this.metrics,
                     new SystemTime(),
@@ -539,6 +547,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
      */
     private long waitOnMetadata(String topic, long maxWaitMs) throws InterruptedException {
         // add topic to metadata topic list if it is not there already.
+        // 判断是否是已经缓存的topic分区信息
         if (!this.metadata.containsTopic(topic))
             this.metadata.add(topic);
         // Partition 分组Topic
@@ -551,6 +560,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
             log.trace("Requesting metadata update for topic {}.", topic);
             // 当前元数据的版本号
             int version = metadata.requestUpdate();
+            // sender 唤醒
             sender.wakeup();
             metadata.awaitUpdate(version, remainingWaitMs);
             long elapsed = time.milliseconds() - begin;
@@ -730,6 +740,8 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
     }
 
     /**
+     * 分区发送前处理
+     *
      * computes partition for given record.
      * if the record has partition returns the value otherwise
      * calls configured partitioner class to compute the partition.
