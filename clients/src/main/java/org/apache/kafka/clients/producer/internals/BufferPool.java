@@ -47,6 +47,8 @@ public final class BufferPool {
     private final int poolableSize;
     private final ReentrantLock lock;
     private final Deque<ByteBuffer> free;
+    // 哪些线程在等待中
+    // 回头可以通知这里进行唤醒
     private final Deque<Condition> waiters;
     private long availableMemory;
     private final Metrics metrics;
@@ -95,7 +97,7 @@ public final class BufferPool {
                                                + " bytes, but there is a hard limit of "
                                                + this.totalMemory
                                                + " on memory allocations.");
-
+        //
         this.lock.lock();
         try {
             // check if we have a free buffer of the right size pooled

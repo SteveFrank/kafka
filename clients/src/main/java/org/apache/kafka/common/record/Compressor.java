@@ -82,6 +82,7 @@ public class Compressor {
     });
 
     private final CompressionType type;
+    // 主要写入操作的组件
     private final DataOutputStream appendStream;
     private final ByteBufferOutputStream bufferStream;
     private final int initPos;
@@ -242,6 +243,16 @@ public class Compressor {
 
     // the following two functions also need to be public since they are used in MemoryRecords.iteration
 
+    /**
+     * 最底层的bytebuffer写入操作
+     *
+     * 压缩流会把一条消息放在缓冲区中，用压缩算法压缩，在写入底层的 ByteBufferOutputStream 中，然后写入的数据
+     *
+     * @param buffer
+     * @param type
+     * @param bufferSize
+     * @return
+     */
     public static DataOutputStream wrapForOutput(ByteBufferOutputStream buffer, CompressionType type, int bufferSize) {
         try {
             switch (type) {

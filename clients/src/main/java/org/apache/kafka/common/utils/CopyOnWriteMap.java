@@ -24,6 +24,10 @@ import java.util.concurrent.ConcurrentMap;
  */
 public class CopyOnWriteMap<K, V> implements ConcurrentMap<K, V> {
 
+    /**
+     * 保证了可见性，只要有线程更新了这个引用变量对应的实际map地址
+     * 可以立马看到
+     */
     private volatile Map<K, V> map;
 
     public CopyOnWriteMap() {
@@ -79,6 +83,12 @@ public class CopyOnWriteMap<K, V> implements ConcurrentMap<K, V> {
         this.map = Collections.emptyMap();
     }
 
+    /**
+     * put 方法使用synchronized关键字，保证只会有一个线程在同一个时间进行更新
+     * @param k
+     * @param v
+     * @return
+     */
     @Override
     public synchronized V put(K k, V v) {
         Map<K, V> copy = new HashMap<K, V>(this.map);

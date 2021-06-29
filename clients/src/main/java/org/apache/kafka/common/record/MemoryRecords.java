@@ -38,6 +38,7 @@ public class MemoryRecords implements Records {
     // the capacity of the initial buffer, which is only used for de-allocation of writable records
     private final int initialCapacity;
 
+    // 主要的内存存储的位置
     // the underlying buffer used for read; while the records are still writable it is null
     private ByteBuffer buffer;
 
@@ -118,6 +119,8 @@ public class MemoryRecords implements Records {
         if (!this.writable)
             return false;
 
+        // 如果消息已经写满了，应该如何进行操作？
+        // 此处判断消息是否已经写满了一个batch
         return this.compressor.numRecordsWritten() == 0 ?
             this.initialCapacity >= Records.LOG_OVERHEAD + Record.recordSize(key, value) :
             this.writeLimit >= this.compressor.estimatedBytesWritten() + Records.LOG_OVERHEAD + Record.recordSize(key, value);

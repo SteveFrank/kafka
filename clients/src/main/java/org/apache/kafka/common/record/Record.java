@@ -23,6 +23,14 @@ import org.apache.kafka.common.utils.Utils;
 
 
 /**
+ *
+ * 要按照自己的二进制协议拼接出来这个发送消息的请求
+ * 4个字节：crc
+ * 1个字节：magic
+ * 1个字节：attribute
+ * 8个字节：timestamp
+ * 4个字节：key size
+ *
  * A record: a serialized key and value along with the associated CRC and other fields
  */
 public final class Record {
@@ -154,6 +162,9 @@ public final class Record {
         }
     }
 
+    // 开始流的写操作
+    // 严格按照二进制写的规范来写入数据
+    // offset | size | crc | magic | attibutes | timestamp | key size | key | value size | value
     public static void write(Compressor compressor, long crc, byte attributes, long timestamp, byte[] key, byte[] value, int valueOffset, int valueSize) {
         // write crc
         compressor.putInt((int) (crc & 0xffffffffL));
