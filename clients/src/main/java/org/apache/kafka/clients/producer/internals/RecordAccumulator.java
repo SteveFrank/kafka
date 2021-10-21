@@ -66,9 +66,10 @@ public final class RecordAccumulator {
     private final CompressionType compression;
     private final long lingerMs;
     private final long retryBackoffMs;
+    // 内存缓冲池
     private final BufferPool free;
     private final Time time;
-    // CopyOnWrite 读多邪少，每次更新，都是copy一个副本，在副本里面儿更新，接着更新整个副本
+    // CopyOnWrite 读多写少，每次更新，都是copy一个副本，在副本里面儿更新，接着更新整个副本
     // 以分区作为key
     private final ConcurrentMap<TopicPartition, Deque<RecordBatch>> batches;
     // 未完成的批处理
@@ -166,6 +167,7 @@ public final class RecordAccumulator {
                                      Callback callback,
                                      long maxTimeToBlock) throws InterruptedException {
         // KafkaProducer 设计的理念就是多线程并发安全的，可以让多个线程并发来调用
+        // 记录当前有多少线程
         // We keep track of the number of appending thread to make sure we do not miss batches in
         // abortIncompleteBatches().
         appendsInProgress.incrementAndGet();
@@ -197,6 +199,7 @@ public final class RecordAccumulator {
                     free.deallocate(buffer);
                     return appendResult;
                 }
+                // 将batch数据和内存空间封装为一个Records
                 MemoryRecords records = MemoryRecords.emptyRecords(buffer, compression, this.batchSize);
                 RecordBatch batch = new RecordBatch(tp, records, time.milliseconds());
                 FutureRecordMetadata future = Utils.notNull(batch.tryAppend(timestamp, key, value, callback, time.milliseconds()));
@@ -206,6 +209,7 @@ public final class RecordAccumulator {
                 return new RecordAppendResult(future, dq.size() > 1 || batch.records.isFull(), true);
             }
         } finally {
+            // 当前正在执行的线程数量递减
             appendsInProgress.decrementAndGet();
         }
     }

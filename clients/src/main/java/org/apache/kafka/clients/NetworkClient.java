@@ -535,6 +535,7 @@ public class NetworkClient implements KafkaClient {
             return !this.metadataFetchInProgress && this.metadata.timeToNextUpdate(now) == 0;
         }
 
+        // 是否需要更新元数据
         @Override
         public long maybeUpdate(long now) {
             // should we update our metadata?

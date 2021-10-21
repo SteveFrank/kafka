@@ -29,10 +29,16 @@ public class Producer extends Thread {
     private final String topic;
     private final Boolean isAsync;
 
+    /**
+     * 构建方法，初始化生产者对象
+     */
     public Producer(String topic, Boolean isAsync) {
         Properties props = new Properties();
         props.put("bootstrap.servers", "localhost:9092");
+        // 默认也会生成一个，可以不配置
         props.put("client.id", "DemoProducer");
+        // 序列化的类
+        // 传输数据的时候使用的是二进制的格式
         props.put("key.serializer", "org.apache.kafka.common.serialization.IntegerSerializer");
         props.put("value.serializer", "org.apache.kafka.common.serialization.StringSerializer");
         producer = new KafkaProducer<>(props);
@@ -46,12 +52,16 @@ public class Producer extends Thread {
         while (true) {
             String messageStr = "Message_" + messageNo;
             long startTime = System.currentTimeMillis();
+            // Kafka发送数据的时候有两种方式
+            // 1、异步发送
+            // 2、同步发送
             if (isAsync) { // Send asynchronously
                 producer.send(new ProducerRecord<>(topic,
                     messageNo,
                     messageStr), new DemoCallBack(startTime, messageNo, messageStr));
             } else { // Send synchronously
                 try {
+                    // 同步发送
                     producer.send(new ProducerRecord<>(topic,
                         messageNo,
                         messageStr)).get();

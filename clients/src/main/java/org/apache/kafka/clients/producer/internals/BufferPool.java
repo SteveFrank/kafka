@@ -32,6 +32,10 @@ import org.apache.kafka.common.utils.Time;
 
 
 /**
+ * 基于BufferPool给这个batch分配一块内存出来，之所以说是Pool，
+ * 就是因为这个batch代表的内存空间是可以复用的，
+ * 用完一块内存之后会放回去下次给别人来使用，复用内存，避免了频繁的使用内存，丢弃对象，垃圾回收
+ *
  * A pool of ByteBuffers kept under a given memory limit. This class is fairly specific to the needs of the producer. In
  * particular it has the following properties:
  * <ol>
