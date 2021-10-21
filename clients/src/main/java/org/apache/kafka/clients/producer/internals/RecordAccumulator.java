@@ -186,7 +186,11 @@ public final class RecordAccumulator {
             int size = Math.max(this.batchSize, Records.LOG_OVERHEAD + Record.recordSize(key, value));
             log.trace("Allocating a new {} byte message buffer for topic {} partition {}", size, tp.topic(), tp.partition());
             // 申请空间大小
+            // 加锁，保证多个线程进入后只有一个线程可以成功的拿到这个部分的内存空间
             ByteBuffer buffer = free.allocate(size, maxTimeToBlock);
+            // 假设有3个线程，3个线程都成功申请到了16KB的ByteBuffer内存
+            // 假设线程2进入了synchronized代码块中，基于16KB的ByteBuffer构造一个batch，放入Deque中，就成功了
+            // 接着线程3进入了synchronized代码块里面去，直接把消息放入Dequeu中已有的一个batch里去，那么他手上的一个16kb的ByteBuffer怎么办？在这里就会把这个16kb的ByteBuffer给放入到BufferPool的池子里去，保证内存可以复用
             synchronized (dq) {
                 // Need to check if producer is closed again after grabbing the dequeue lock.
                 if (closed)
@@ -202,6 +206,7 @@ public final class RecordAccumulator {
                 // 将batch数据和内存空间封装为一个Records
                 MemoryRecords records = MemoryRecords.emptyRecords(buffer, compression, this.batchSize);
                 RecordBatch batch = new RecordBatch(tp, records, time.milliseconds());
+                // double check的模式
                 FutureRecordMetadata future = Utils.notNull(batch.tryAppend(timestamp, key, value, callback, time.milliseconds()));
 
                 dq.addLast(batch);
@@ -219,8 +224,9 @@ public final class RecordAccumulator {
      * resources (like compression streams buffers).
      */
     private RecordAppendResult tryAppend(long timestamp, byte[] key, byte[] value, Callback callback, Deque<RecordBatch> deque) {
-        // 返回的是最近的一个batch
+        // 返回的是最近的一个batch（看一下最后的一个消息）
         RecordBatch last = deque.peekLast();
+        // 如果存在则尝试进行加入
         if (last != null) {
             FutureRecordMetadata future = last.tryAppend(timestamp, key, value, callback, time.milliseconds());
             if (future == null)

@@ -101,7 +101,8 @@ public final class BufferPool {
                                                + " bytes, but there is a hard limit of "
                                                + this.totalMemory
                                                + " on memory allocations.");
-        //
+        // 此处使用ReentrantLock比较好的地方是可以通过API进行灵活的控制，进行控制锁和释放锁
+        // 由于这里需要这样的方式，所以BufferPool使用了这个方式
         this.lock.lock();
         try {
             // check if we have a free buffer of the right size pooled
