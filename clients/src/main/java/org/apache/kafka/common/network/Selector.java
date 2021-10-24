@@ -80,14 +80,30 @@ public class Selector implements Selectable {
     private static final Logger log = LoggerFactory.getLogger(Selector.class);
 
     private final java.nio.channels.Selector nioSelector;
+    /**
+     * 这里的channels中，保存了每个broker id到Channel的映射关系
+     * 对于每个broker都有一个网络连接，每个连接在NIO的语义里，
+     * 都有一个对应的SocketChannel，我们估计，KafkaChannel封装了SocketChannel
+     */
     private final Map<String, KafkaChannel> channels;
+    /**
+     * 已经成功发送出去的请求
+     */
     private final List<Send> completedSends;
+    /**
+     * 已经成功接收回来的响应数据
+     */
     private final List<NetworkReceive> completedReceives;
+    /**
+     * 每个Broker收到的但是还没有被处理的响应
+     */
     private final Map<KafkaChannel, Deque<NetworkReceive>> stagedReceives;
+
     private final Set<SelectionKey> immediatelyConnectedKeys;
     private final List<String> disconnected;
     private final List<String> connected;
     private final List<String> failedSends;
+
     private final Time time;
     private final SelectorMetrics sensors;
     private final String metricGrpPrefix;
@@ -162,6 +178,9 @@ public class Selector implements Selectable {
             socket.setSendBufferSize(sendBufferSize);
         if (receiveBufferSize != Selectable.USE_DEFAULT_BUFFER_SIZE)
             socket.setReceiveBufferSize(receiveBufferSize);
+        // 1、默认是设置false，开启Nagle算法，就是把网络通信中的一些小的数据收集起来
+        // 组装成一个大的数据包然后再一次性发送出去，如果大量的小包传递，会导致网络拥塞
+        // 2、如果设置为true，就是关闭Nagle算法，让你发送出去的数据包立马就是通过网络传输过去
         socket.setTcpNoDelay(true);
         boolean connected;
         try {

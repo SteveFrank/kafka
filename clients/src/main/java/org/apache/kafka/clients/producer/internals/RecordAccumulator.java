@@ -402,6 +402,7 @@ public final class RecordAccumulator {
                         synchronized (deque) {
                             RecordBatch first = deque.peekFirst();
                             if (first != null) {
+                                // backingOff
                                 boolean backoff = first.attempts > 0 && first.lastAttemptMs + retryBackoffMs > now;
                                 // Only drain the batch if it is not during backoff period.
                                 if (!backoff) {
