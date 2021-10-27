@@ -157,6 +157,7 @@ public class KafkaChannel {
     private boolean send(Send send) throws IOException {
         send.writeTo(transportLayer);
         if (send.completed())
+            // 发送完成后移除对于write事件的关注
             transportLayer.removeInterestOps(SelectionKey.OP_WRITE);
 
         return send.completed();

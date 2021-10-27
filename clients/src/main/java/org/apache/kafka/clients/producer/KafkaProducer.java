@@ -152,6 +152,9 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
      */
     private final long maxBlockTimeMs;
     private final int requestTimeoutMs;
+    /**
+     * 定义了许多的拦截器
+     */
     private final ProducerInterceptors<K, V> interceptors;
 
     /**
@@ -283,6 +286,11 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
                     metrics,
                     time);
             List<InetSocketAddress> addresses = ClientUtils.parseAndValidateAddresses(config.getList(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG));
+
+            // ------------------------
+
+            // 构造方法的时候不会触发元数据的拉取逻辑
+            // 针对元数据相关注册Listener监听的方式的方式
             this.metadata.update(Cluster.bootstrap(addresses), time.milliseconds());
             // 网络通信相关的内容
             ChannelBuilder channelBuilder = ClientUtils.createChannelBuilder(config.values());
